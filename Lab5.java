@@ -22,10 +22,6 @@ public class Lab5 {
         Scanner scanner = new Scanner(System.in);
         boolean running = true;
 
-        System.out.println("╔══════════════════════════════════════════════╗");
-        System.out.println("║   Програма 1: Аналіз тексту (голосні)        ║");
-        System.out.println("╚══════════════════════════════════════════════╝");
-
         while (running) {
             printMenu();
             System.out.print("Ваш вибір: ");
@@ -264,4 +260,5 @@ public class Lab5 {
         }
         return lines;
     }
+
 }
