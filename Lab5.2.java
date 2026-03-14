@@ -7,19 +7,26 @@ import java.util.regex.*;
  */
 class Program2_CarDatabase {
 
-    private static final String FILE_PATH   = "cars.dat";
-    private static final String DELIMITER   = "|";
+    private static final String FILE_PATH = "cars.dat";
+    private static final String DELIMITER = "|";
 
-    // Regex: captures 4 fields separated by '|'
-    // Group 1 = brand, 2 = plate, 3 = color, 4 = owner
+    // Deserializes a file line into 4 groups: brand | plate | color | owner
     private static final Pattern RECORD_PATTERN =
             Pattern.compile("^([^|]+)\\|([^|]+)\\|([^|]+)\\|([^|]+)$");
 
-    // Regex: Ukrainian plate format — AA1234BB or AA 1234 BB
-    // Group 1 = first letters, 2 = digits, 3 = last letters
+    // Validates and parses a plate number into 3 groups: AA | 1234 | BB
     private static final Pattern PLATE_PATTERN =
-            Pattern.compile("^([A-ZА-ЯҐЄІЇ]{2})\\s?(\\d{4})\\s?([A-ZА-ЯҐЄІЇ]{2})$",
-                    Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            Pattern.compile(
+                    "^([A-ZА-ЯҐЄІЇ]{2})\\s?(\\d{4})\\s?([A-ZА-ЯҐЄІЇ]{2})$",
+                    Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+            );
+
+    // Parses a partial plate query — each group is optional: AA | 1234 | BB
+    private static final Pattern PLATE_QUERY_PATTERN =
+            Pattern.compile(
+                    "^([A-ZА-ЯҐЄІЇ]{0,2})?(\\d{0,4})?([A-ZА-ЯҐЄІЇ]{0,2})?$",
+                    Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+            );
 
 
     static class Car {
@@ -43,10 +50,10 @@ class Program2_CarDatabase {
             Matcher matcher = RECORD_PATTERN.matcher(line.trim());
             if (!matcher.matches()) return null;
             return new Car(
-                    matcher.group(1),   // brand
-                    matcher.group(2),   // plate
-                    matcher.group(3),   // color
-                    matcher.group(4)    // owner
+                    matcher.group(1),
+                    matcher.group(2),
+                    matcher.group(3),
+                    matcher.group(4)
             );
         }
     }
@@ -71,11 +78,12 @@ class Program2_CarDatabase {
                 case "3" -> editRecord(input);
                 case "4" -> viewAllRecords();
                 case "5" -> searchByBrandAndColor(input);
+                case "6" -> searchByPlate(input);
                 case "0" -> {
                     running = false;
                     System.out.println("Goodbye!");
                 }
-                default  -> System.out.println("⚠  Invalid choice, try again.");
+                default -> System.out.println("⚠  Invalid choice, try again.");
             }
         }
 
@@ -92,6 +100,7 @@ class Program2_CarDatabase {
         System.out.println("│  3.  Edit existing record                │");
         System.out.println("│  4.  View all records                    │");
         System.out.println("│  5.  Search by brand and color           │");
+        System.out.println("│  6.  Search by plate number              │");
         System.out.println("│  0.  Exit                                │");
         System.out.println("└──────────────────────────────────────────┘");
     }
@@ -157,21 +166,20 @@ class Program2_CarDatabase {
         }
 
         Car car = cars.get(index - 1);
-        System.out.println("Editing: " + car.serialize());
+        System.out.println("Editing record #" + index);
         System.out.println("(Press Enter to keep current value)");
 
-        System.out.print("Brand   [" + car.brand + "]: ");
+        System.out.print("Brand  [" + car.brand + "]: ");
         String brand = input.nextLine().trim();
         if (!brand.isEmpty()) car.brand = brand;
 
-        String plate = readValidPlate(input, car.plate);
-        car.plate = plate;
+        car.plate = readValidPlate(input, car.plate);
 
-        System.out.print("Color   [" + car.color + "]: ");
+        System.out.print("Color  [" + car.color + "]: ");
         String color = input.nextLine().trim();
         if (!color.isEmpty()) car.color = color;
 
-        System.out.print("Owner   [" + car.owner + "]: ");
+        System.out.print("Owner  [" + car.owner + "]: ");
         String owner = input.nextLine().trim();
         if (!owner.isEmpty()) car.owner = owner;
 
@@ -218,9 +226,7 @@ class Program2_CarDatabase {
             }
         }
 
-        System.out.println("\n═══════════════════════════════════════════════════════");
-        System.out.printf( "  Search: brand = '%s',  color = '%s'%n", targetBrand, targetColor);
-        System.out.println("═══════════════════════════════════════════════════════");
+        printSearchHeader("brand = '" + targetBrand + "',  color = '" + targetColor + "'");
 
         if (results.isEmpty()) {
             System.out.println("  No matching cars found.");
@@ -228,10 +234,87 @@ class Program2_CarDatabase {
             System.out.printf("  %-5s  %-15s  %-20s%n", "#", "Plate Number", "Owner");
             System.out.println("  " + "─".repeat(44));
             for (int i = 0; i < results.size(); i++) {
-                Car car = results.get(i);
-                System.out.printf("  %-5d  %-15s  %-20s%n", i + 1, car.plate, car.owner);
+                System.out.printf("  %-5d  %-15s  %-20s%n",
+                        i + 1, results.get(i).plate, results.get(i).owner);
             }
             System.out.println("  " + "─".repeat(44));
+            System.out.println("  Found: " + results.size() + " car(s).");
+        }
+    }
+
+
+    private static void searchByPlate(Scanner input) {
+        List<Car> cars = loadAllCars();
+        if (cars == null || cars.isEmpty()) {
+            System.out.println("⚠  Database is empty or does not exist.");
+            return;
+        }
+
+        System.out.println("\nEnter what you know about the plate:");
+        System.out.println("  AA        → search by first letters");
+        System.out.println("  1234      → search by digits");
+        System.out.println("  BB        → search by last letters");
+        System.out.println("  AA1234BB  → full plate");
+        System.out.print("Query: ");
+        String query = input.nextLine().trim().toUpperCase();
+
+        if (query.isEmpty()) {
+            System.out.println("⚠  Query cannot be empty.");
+            return;
+        }
+
+        // Parse the query into up to 3 groups — each is optional
+        Matcher queryMatcher = PLATE_QUERY_PATTERN.matcher(query);
+        if (!queryMatcher.matches()) {
+            System.out.println("⚠  Invalid query format.");
+            return;
+        }
+
+        String queryFirst  = queryMatcher.group(1) != null ? queryMatcher.group(1) : "";
+        String queryDigits = queryMatcher.group(2) != null ? queryMatcher.group(2) : "";
+        String queryLast   = queryMatcher.group(3) != null ? queryMatcher.group(3) : "";
+
+        // Show user what we are actually searching for
+        System.out.println("\nSearching where:");
+        if (!queryFirst.isEmpty())  System.out.println("  first letters contain  → '" + queryFirst  + "'");
+        if (!queryDigits.isEmpty()) System.out.println("  digits        contain  → '" + queryDigits + "'");
+        if (!queryLast.isEmpty())   System.out.println("  last letters  contain  → '" + queryLast   + "'");
+
+        List<Car> results = new ArrayList<>();
+
+        for (Car car : cars) {
+            // Split each stored plate into its 3 groups via PLATE_PATTERN
+            Matcher plateMatcher = PLATE_PATTERN.matcher(car.plate);
+            if (!plateMatcher.matches()) continue;
+
+            String plateFirst  = plateMatcher.group(1).toUpperCase(); // "AA"
+            String plateDigits = plateMatcher.group(2);               // "1234"
+            String plateLast   = plateMatcher.group(3).toUpperCase(); // "BB"
+
+            // Only check groups that the user actually filled in
+            boolean matchFirst  = queryFirst.isEmpty()  || plateFirst.contains(queryFirst);
+            boolean matchDigits = queryDigits.isEmpty() || plateDigits.contains(queryDigits);
+            boolean matchLast   = queryLast.isEmpty()   || plateLast.contains(queryLast);
+
+            if (matchFirst && matchDigits && matchLast) {
+                results.add(car);
+            }
+        }
+
+        printSearchHeader("plate query = '" + query + "'");
+
+        if (results.isEmpty()) {
+            System.out.println("  No cars found.");
+        } else {
+            System.out.printf("  %-5s  %-14s  %-12s  %-12s  %-15s%n",
+                    "#", "Plate", "Brand", "Color", "Owner");
+            System.out.println("  " + "─".repeat(62));
+            for (int i = 0; i < results.size(); i++) {
+                Car c = results.get(i);
+                System.out.printf("  %-5d  %-14s  %-12s  %-12s  %-15s%n",
+                        i + 1, c.plate, c.brand, c.color, c.owner);
+            }
+            System.out.println("  " + "─".repeat(62));
             System.out.println("  Found: " + results.size() + " car(s).");
         }
     }
@@ -253,10 +336,12 @@ class Program2_CarDatabase {
     }
 
     /**
-     * Regex groups on a valid plate:
-     *   group(1) = first 2 letters   e.g. "AA"
-     *   group(2) = 4 digits          e.g. "1234"
-     *   group(3) = last 2 letters    e.g. "BB"
+     *
+     * Regex groups on a valid input:
+     *   group(1) = first 2 letters  →  "AA"
+     *   group(2) = 4 digits         →  "1234"
+     *   group(3) = last 2 letters   →  "BB"
+     * Normalizes result to uppercase with no spaces: AA1234BB
      */
     private static String readValidPlate(Scanner input, String fallback) {
         while (true) {
@@ -267,19 +352,17 @@ class Program2_CarDatabase {
 
             String raw = input.nextLine().trim();
 
-            // Keep existing value if editing and user pressed Enter
             if (raw.isEmpty() && fallback != null) return fallback;
 
             Matcher matcher = PLATE_PATTERN.matcher(raw);
             if (matcher.matches()) {
-                // Reconstruct normalized plate from captured groups: AA1234BB
-                String normalized = matcher.group(1).toUpperCase()
+                // Reconstruct normalized plate from captured groups
+                return matcher.group(1).toUpperCase()
                         + matcher.group(2)
                         + matcher.group(3).toUpperCase();
-                return normalized;
             }
 
-            System.out.println("  ⚠  Invalid plate format. Expected: AA1234BB");
+            System.out.println("  ⚠  Invalid format. Expected: AA1234BB");
         }
     }
 
@@ -290,8 +373,8 @@ class Program2_CarDatabase {
             return null;
         }
 
-        List<Car> cars     = new ArrayList<>();
-        int       lineNum  = 0;
+        List<Car> cars    = new ArrayList<>();
+        int       lineNum = 0;
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(new FileInputStream(FILE_PATH), "UTF-8"))) {
@@ -328,7 +411,6 @@ class Program2_CarDatabase {
         }
     }
 
-
     private static void printCarTable(List<Car> cars, String title) {
         System.out.println("\n╔══════════════════════════════════════════════════════════════════╗");
         System.out.printf ("║  %-64s║%n", " " + title + "  (" + cars.size() + " records)");
@@ -343,8 +425,15 @@ class Program2_CarDatabase {
         System.out.println("╚═══╩══════════════╩════════════╩════════════╩════════════════════╝");
     }
 
+    private static void printSearchHeader(String criteria) {
+        System.out.println("\n" + "═".repeat(65));
+        System.out.println("  Search:  " + criteria);
+        System.out.println("═".repeat(65));
+    }
+
     private static int parseIntOrZero(String s) {
         try { return Integer.parseInt(s.trim()); }
         catch (NumberFormatException e) { return 0; }
     }
 }
+
